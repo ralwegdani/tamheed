@@ -4,7 +4,7 @@ import { validateEvaluation } from '../utils/scoring';
 import AppError from '../utils/AppError';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-export const MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
+export const MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const TIMEOUT_MS = 30000;
 
