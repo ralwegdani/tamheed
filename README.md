@@ -4,12 +4,14 @@ Tamheed is a web platform where university students practice real workplace situ
 
 CPIT405 group project, King Abdulaziz University.
 
-| Name | Student ID |
-| --- | --- |
-| Jana Bawazir | 2305775 |
-| Asalah Munahir | 2305872 |
-| Reham Alwegdani | 2308074 |
-| Atheer Alsulami | 2307149 |
+| Name | Student ID | Role |
+| --- | --- | --- |
+| Atheer Alsulami | 2307149 | Project Manager |
+| Jana Bawazir | 2305775 | Frontend Developer |
+| Reham Alwegdani | 2308074 | Backend Developer |
+| Asalah Munahir | 2305872 | Documentation & Testing Lead |
+
+Roles were assigned at random. The course guidelines describe teams of 2 to 3 students and our team has four, so we will confirm this with the instructor.
 
 ## Features and course requirements
 
@@ -43,6 +45,78 @@ CPIT405 group project, King Abdulaziz University.
 - **Simulations:** add, edit, hide and remove simulations for everyone. Reset brings a built-in simulation back to its original text.
 - **Settings:** the daily AI limit per student and an announcement shown on every student's dashboard.
 
+## Screenshots
+
+The screenshots come from a test run with sample data.
+
+| Home | Simulations |
+| --- | --- |
+| ![Home page](docs/screenshots/home.png) | ![Simulations list](docs/screenshots/simulations.png) |
+
+| A simulation | A result |
+| --- | --- |
+| ![Simulation brief and rubric](docs/screenshots/simulation.png) | ![Result page with scores](docs/screenshots/result.png) |
+
+![Student dashboard with charts](docs/screenshots/dashboard.png)
+
+## How it works
+
+React runs in the browser and talks to three services directly. We do not run our own server.
+
+- **Firebase Authentication:** sign up, log in, log out and password changes.
+- **Cloud Firestore:** all data. The rules in `firestore.rules` check the role and status of the user on every request.
+- **Gemini API:** evaluates the answer.
+
+An evaluation works like this:
+
+1. The app checks the answer (100 to 3000 characters) and the daily limit.
+2. `evaluateAnswer` in `src/services/gemini.js` sends the scenario, the rubric and the answer to Gemini. It asks for JSON that follows a schema and stops waiting after 30 seconds.
+3. `validateEvaluation` in `src/utils/scoring.js` checks that every criterion has a score from 0 to 10.
+4. `calculateOverall` computes the overall score from 0 to 100 with the rubric weights. Gemini never decides the overall score.
+5. The result is saved in Firestore and shown to the student.
+
+## API
+
+### Gemini request
+
+```
+POST https://generativelanguage.googleapis.com/v1beta/models/{VITE_GEMINI_MODEL}:generateContent
+Header: x-goog-api-key: {VITE_GEMINI_API_KEY}
+Body: systemInstruction, contents (scenario, task, rubric, answer), generationConfig
+      (temperature 0.2, responseMimeType application/json, responseSchema)
+```
+
+### Gemini reply (inside `candidates[0].content.parts[0].text`)
+
+```
+{
+  "criteria": [{ "criterion_id": "c1", "score": 7, "reason": "..." }],
+  "strengths": ["..."],
+  "improvements": ["..."],
+  "feedback": "...",
+  "recommendations": ["..."]
+}
+```
+
+Errors (no key, timeout, network, quota 429, other HTTP errors, empty or wrong reply) are shown to the student in Arabic or English, and the answer stays in the box.
+
+### Internal services
+
+- `src/services/gemini.js`: `evaluateAnswer`, `buildPrompt`
+- `src/services/db.js`: users (`loadOrCreateProfile`, `getAllUsers`, `updateUserByAdmin`, ...), daily limit (`usedToday`, `addUsage`), results (`saveResult`, `getUserResults`, ...), simulations, settings and the admin log
+
+## Database (Cloud Firestore)
+
+| Collection | Document id | Main fields |
+| --- | --- | --- |
+| `users` | Firebase Auth uid | `name`, `email`, `role` (student or admin), `status` (active or suspended), `usage` {`date`, `count`} |
+| `results` | automatic | `uid`, `simulationId`, `answer`, `language`, `model`, `criteria`, `overall`, `strengths`, `improvements`, `feedback`, `recommendations`, `createdAt` |
+| `simulations` | simulation id | admin changes only (new, edited or hidden simulations) |
+| `settings` | `platform` | `dailyLimit`, `announcement` |
+| `adminLog` | automatic | `adminUid`, `adminName`, `action`, `target`, `createdAt` |
+
+The 12 built-in simulations live in `src/data/simulations.js` and `src/data/simulations-ar.js`, not in the database.
+
 ## Setup
 
 You need Node.js 20 or newer.
@@ -75,7 +149,7 @@ Without step 3 every page shows a permission error.
 2. Open **Dashboard > API keys** and create a key. Do not add billing.
 3. Check that the **Billing Tier** column says **Free tier**.
 4. Put the key in `.env` as `VITE_GEMINI_API_KEY`.
-5. Set `VITE_GEMINI_MODEL` to a model your key can use. New accounts should use `gemini-3.1-flash-lite`.
+5. Set `VITE_GEMINI_MODEL` to a model your key can use. The default is `gemini-3.1-flash-lite`.
 
 ### 5. First admin account
 
@@ -94,19 +168,18 @@ npm run dev
 
 Open http://localhost:5173/tamheed/
 
-## Deploy to GitHub Pages
+## Deployment
 
-1. Create a GitHub repository. If its name is not `tamheed`, change `base` in `vite.config.js` to `'/your-repo-name/'`.
-2. Push the code to the `main` branch.
-3. Run `npm run deploy`. This builds the app and publishes the `dist` folder to the `gh-pages` branch.
-4. In the repository settings, open Pages and choose the `gh-pages` branch.
-5. In Firebase, open Authentication > Settings > Authorized domains and add `your-username.github.io`.
+The project is not deployed publicly. We run the demo locally with `npm run dev`.
 
-The live site uses the values in your `.env` file at build time, so run the deploy from a computer that has the `.env` file.
+The built JavaScript contains the Gemini key from `.env`. When we tried `npm run deploy`, GitHub push protection found the key and blocked the push. Nothing was published. Please do not allow the secret in GitHub. Public hosting is planned after the Gemini call moves to a server function that keeps the key secret.
+
+The `deploy` script (GitHub Pages) is kept in `package.json` for that later step.
 
 ## Folder structure
 
 ```
+docs/screenshots/      Screenshots used in this README
 firestore.rules        Database security rules (paste into the Firebase console)
 src/
   firebase.js          Firebase setup: Authentication + Firestore
@@ -131,7 +204,7 @@ src/
 
 - Deleting a Firebase login account needs a server, which the free plan does not offer. The admin panel suspends accounts instead. To delete an account completely, use the Firebase console: Authentication > Users.
 - The daily AI limit is checked in the app. The security rules stop suspended users from saving results.
-- The Gemini key is inside the built JavaScript, so a visitor could find it. This is the same as the external API example in the React lecture. The key is on the free tier with no billing, so the worst case is that someone uses the daily quota. You can create a new key in AI Studio at any time.
+- The Gemini key is inside the built JavaScript, so anyone who opens the site could find it. This is the same as the external API example in the React lecture. For this reason the site is only run locally (see Deployment). The key is on the free tier with no billing, and you can create a new key in AI Studio at any time.
 - On the free tier, Google may use the prompts to improve its products. The app sends only the scenario, the rubric and the answer, never names or emails.
 - Simulations that the admin adds or edits are shown in the language the admin wrote them in.
 - AI feedback is educational guidance, not an official job assessment.
