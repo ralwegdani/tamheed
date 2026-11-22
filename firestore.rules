@@ -1,0 +1,73 @@
+// Firestore security rules for Tamheed.
+// Copy this whole file into: Firebase console > Firestore Database > Rules > Publish.
+// The rules run on Google's servers, so they protect the data even if someone
+// changes the JavaScript in their browser.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return signedIn() && profile().role == 'admin';
+    }
+
+    function isActive() {
+      return signedIn() && profile().status == 'active';
+    }
+
+    // Must match the list in src/data/admins.js
+    function isStartingAdmin() {
+      return request.auth.token.email in ['admin@tamheed.com'];
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+
+      // A new user creates their own profile as an active student
+      // (or as an admin when their email is in the starting admin list).
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.status == 'active'
+        && (request.resource.data.role == 'student'
+            || (request.resource.data.role == 'admin' && isStartingAdmin()));
+
+      // Users can change their own name, activity date and daily usage,
+      // but never their own role or status. Admins can change anything.
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.status == resource.data.status);
+
+      allow delete: if isAdmin();
+    }
+
+    match /results/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isActive() && request.resource.data.uid == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /simulations/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /adminLog/{id} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+  }
+}
